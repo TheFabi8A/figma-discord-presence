@@ -1,6 +1,4 @@
 const electron = require("electron");
-const { dialog } = electron;
-const psList = require("ps-list");
 
 const events = require("./lib/events");
 const updater = require("./lib/updater");
@@ -10,6 +8,7 @@ const CustomTray = require("./lib/tray");
 const Activity = require("./lib/activity");
 
 const { app } = electron;
+
 let tray, activity;
 
 const state = {
@@ -20,7 +19,11 @@ const state = {
 
 async function quit() {
   logger.debug("main", "quitting...");
-  if (activity) await activity.destroy();
+
+  if (activity) {
+    await activity.destroy();
+  }
+
   app.quit();
 }
 
@@ -39,7 +42,10 @@ app
   .then(() => (tray = new CustomTray(state)))
   .then(() => (activity = new Activity()))
   .then(() => registerEvents())
-  .then(() => logger.debug("main", "initalized!"))
+  .then(async () => {
+    await activity.connect();
+  })
+  .then(() => logger.debug("main", "initialized!"))
   .catch((err) => logger.error("main", err.message));
 
 function registerEvents() {
@@ -66,6 +72,7 @@ function registerEvents() {
 
     state.isDiscordReady = false;
     state.isDiscordConnecting = true;
+
     tray.setState(state);
   });
 
@@ -74,6 +81,7 @@ function registerEvents() {
 
     state.isDiscordReady = true;
     state.isDiscordConnecting = false;
+
     tray.setState(state);
   });
 
@@ -82,31 +90,16 @@ function registerEvents() {
 
     state.isDiscordReady = false;
     state.isDiscordConnecting = false;
+
     tray.setState(state);
   });
 
-  activity.on(events.DISCORD_LOGIN_ERROR, async () => {
-    // Is Discord open?
-    let isRunning = false;
-    const processList = await psList();
-
-    if (process.platform === "darwin") {
-      isRunning =
-        processList.filter((p) => p.cmd.includes("MacOS/Discord")).length > 0;
-    } else if (process.platform === "win32") {
-      isRunning =
-        processList.filter((p) => p.name.includes("Discord.exe")).length > 0;
-    }
-
-    if (!isRunning) {
-      dialog.showErrorBox(
-        "Figma Discord Presence",
-        "Unfortunately it doesn't look like Discord is running. It must be running in order to connect and update your presence status."
-      );
-    }
+  activity.on(events.DISCORD_LOGIN_ERROR, () => {
+    logger.debug("main", "discord login failed; automatic reconnect scheduled");
 
     state.isDiscordReady = false;
     state.isDiscordConnecting = false;
+
     tray.setState(state);
   });
 }
@@ -116,8 +109,9 @@ app.on("window-all-closed", () => {
 });
 
 process.on("unhandledRejection", (err) =>
-  logger.error("unhandledRejection", err.message)
+  logger.error("unhandledRejection", err.message),
 );
+
 process.on("uncaughtException", (err) =>
-  logger.error("uncaughtException", err.message)
+  logger.error("uncaughtException", err.message),
 );
